@@ -26,6 +26,7 @@ PUBLIC_PATHS = ("/login", "/setup", "/api/login", "/api/setup", "/api/session", 
 UNSAFE_METHODS = ("POST", "PUT", "PATCH", "DELETE")
 FORWARDING_HEADERS = ("forwarded", "x-forwarded-for", "x-forwarded-host", "x-real-ip")
 MAX_UPLOAD_PIXELS = 50_000_000
+MAX_PREVIEW_EVERY = 1000
 CSRF_HEADER = "x-mflux-csrf"
 CONTENT_SECURITY_POLICY = (
     "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; "
@@ -76,6 +77,9 @@ class WebApp:
             return WebApp._secured(JSONResponse({"detail": "Host not allowed"}, status_code=421))
         if WebApp._content_length(request) > (self.settings.max_upload_mb + 1) * 1024 * 1024:
             return WebApp._secured(JSONResponse({"detail": "Request body too large"}, status_code=413))
+        if "transfer-encoding" in request.headers and "content-length" not in request.headers:
+            # The size check above needs Content-Length. A chunked body would be read whole.
+            return WebApp._secured(JSONResponse({"detail": "Content-Length required"}, status_code=411))
         if not self.auth_required and WebApp._proxied(request):
             # An unauthenticated server only trusts callers on this machine. A request that
             # came through a proxy is from somewhere else, even if its socket is loopback.
@@ -85,33 +89,53 @@ class WebApp:
         path = request.url.path
         is_public = path in PUBLIC_PATHS or path.startswith("/static/")
         bearer = WebApp._bearer(request)
-        authenticated = self._is_authenticated(request, bearer)
+        bearer_ok = False
+        if bearer is not None and self.auth_required:
+            # Every bearer guess costs a PBKDF2 run, so it goes through the login throttle
+            # and off the event loop, like a login attempt.
+            client = self._throttle_key(request)
+            if retry_after := self.throttle.retry_after(client):
+                return WebApp._secured(
+                    JSONResponse(
+                        {"detail": f"Too many failed attempts; retry in {retry_after}s"},
+                        status_code=429,
+                        headers={"Retry-After": str(retry_after)},
+                    )
+                )
+            bearer_ok = await asyncio.to_thread(self.auth.verify_api_key, bearer)
+            if bearer_ok:
+                self.throttle.record_success(client)
+            else:
+                self.throttle.record_failure(client)
+                logger.warning("Failed bearer auth from %s (key fingerprint %s)", client, WebAuth.fingerprint(bearer))
+            authenticated = bearer_ok
+        else:
+            authenticated = self._is_authenticated(request)
+        request.state.authenticated = authenticated
         if not is_public and not authenticated:
             if request.method == "GET" and not path.startswith("/api/"):
                 target = "/setup" if self.settings.require_auth and not self.auth.enabled else "/login"
                 return WebApp._secured(RedirectResponse(target, status_code=303))
             return WebApp._secured(JSONResponse({"detail": "Authentication required"}, status_code=401))
-        if request.method in UNSAFE_METHODS and not self._csrf_ok(request, bearer):
+        if request.method in UNSAFE_METHODS and not self._csrf_ok(request, bearer_ok):
             return WebApp._secured(JSONResponse({"detail": "CSRF check failed; reload the page"}, status_code=403))
         response = await call_next(request)
         if path.startswith("/api/"):
             response.headers.setdefault("Cache-Control", "no-store")
         return WebApp._secured(response)
 
-    def _is_authenticated(self, request: Request, bearer: str | None) -> bool:
+    def _is_authenticated(self, request: Request) -> bool:
         if not self.auth_required:
             return True
-        if bearer is not None:
-            return self.auth.verify_api_key(bearer)
         return self.auth.verify_session_token(request.cookies.get(SESSION_COOKIE_NAME))
 
-    def _csrf_ok(self, request: Request, bearer: str | None) -> bool:
+    def _csrf_ok(self, request: Request, bearer_ok: bool) -> bool:
         origin = request.headers.get("origin")
         if origin and origin != "null":
             origin_host = origin.split("://", 1)[-1]
             if origin_host != request.headers.get("host"):
                 return False
-        if bearer is not None and self.auth_required and self.auth.verify_api_key(bearer):
+        if bearer_ok:
             # Scripted clients authenticate per request and never carry a cookie to ride on.
             return True
         return self.auth.verify_csrf(request.cookies.get(SESSION_COOKIE_NAME), request.headers.get(CSRF_HEADER))
@@ -146,17 +170,16 @@ class WebApp:
     def _register_auth_api(self, app: FastAPI) -> None:
         @app.get("/api/session")
         def session(request: Request):
-            bearer = WebApp._bearer(request)
             return {
                 "auth_required": self.auth_required,
                 "auth_configured": self.auth.enabled,
-                "authenticated": self._is_authenticated(request, bearer),
+                "authenticated": getattr(request.state, "authenticated", False),
                 "csrf": self.auth.csrf_token(request.cookies.get(SESSION_COOKIE_NAME)),
             }
 
         @app.post("/api/login")
         async def login(request: Request):
-            client = WebApp._client(request)
+            client = self._throttle_key(request)
             retry_after = self.throttle.retry_after(client)
             if retry_after:
                 raise HTTPException(
@@ -164,7 +187,7 @@ class WebApp:
                 )
             body = await WebApp._json(request)
             api_key = str(body.get("api_key") or "")
-            if not self.auth.enabled or not self.auth.verify_api_key(api_key):
+            if not self.auth.enabled or not await asyncio.to_thread(self.auth.verify_api_key, api_key):
                 self.throttle.record_failure(client)
                 logger.warning("Failed login from %s (key fingerprint %s)", client, WebAuth.fingerprint(api_key))
                 raise HTTPException(401, "Invalid API key")
@@ -226,12 +249,13 @@ class WebApp:
         @app.post("/api/generate")
         async def generate(request: Request):
             payload = await WebApp._json(request)
+            preview_every = WebApp._preview_every(payload.get("preview_every"))
             invocation = self._invocation(payload)
             try:
                 await asyncio.to_thread(invocation.validate)
             except InvocationError as exc:
                 raise HTTPException(400, str(exc)) from exc
-            job = self.runner.submit(invocation, payload, preview_every=payload.get("preview_every") or 0)
+            job = self.runner.submit(invocation, payload, preview_every=preview_every)
             return job.snapshot()
 
         @app.get("/api/jobs")
@@ -457,6 +481,27 @@ class WebApp:
     @staticmethod
     def _client(request: Request) -> str:
         return request.client.host if request.client else "unknown"
+
+    def _throttle_key(self, request: Request) -> str:
+        # Behind a reverse proxy every client has the proxy's socket address, so one attacker
+        # would lock out everyone. The proxy appends the address it saw as the last
+        # X-Forwarded-For entry. The client writes the entries before it, so they are not trusted.
+        client = WebApp._client(request)
+        behind_proxy = self.settings.behind_https or any(
+            not NetworkPolicy.is_loopback_host(h) for h in self.settings.allowed_hosts
+        )
+        forwarded = request.headers.get("x-forwarded-for")
+        if behind_proxy and forwarded and NetworkPolicy.is_loopback_host(client):
+            return forwarded.split(",")[-1].strip() or client
+        return client
+
+    @staticmethod
+    def _preview_every(value) -> int:
+        if value is None or value == "":
+            return 0
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= MAX_PREVIEW_EVERY:
+            raise HTTPException(400, f"preview_every must be a whole number from 0 to {MAX_PREVIEW_EVERY}")
+        return value
 
     @staticmethod
     async def _json(request: Request) -> dict:

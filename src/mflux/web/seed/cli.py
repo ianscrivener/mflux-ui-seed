@@ -7,7 +7,7 @@ from pathlib import Path
 from mflux.web.seed.network import NetworkPolicy
 from mflux.web.seed.settings import DEFAULT_CONFIG_PATH, DEFAULT_HOST, DEFAULT_OUTPUT_DIR, DEFAULT_PORT, WebSettings
 
-INSTALL_HINT = "mflux-web needs the 'web' extra: uv tool install --force 'mflux[web]'"
+INSTALL_HINT = "mflux-web is missing a dependency; reinstall it: uv tool install --force mflux-web-seed"
 
 DEFAULT_YAML_PATH = Path(os.environ.get("MFLUX_WEB_YAML", str(Path.home() / ".config" / "mflux" / "mflux-web.yaml")))
 
@@ -16,6 +16,25 @@ DEFAULT_YAML_PATH = Path(os.environ.get("MFLUX_WEB_YAML", str(Path.home() / ".co
 # options with no YAML equivalent; every other option uses a None sentinel so
 # "was this set on the command line?" stays answerable.
 LOG_LEVELS = ["debug", "info", "warning", "error"]
+# argparse dest -> (YAML key, coerce_value flags). merge_settings rejects a YAML key outside this map.
+YAML_OPTIONS = {
+    "host": ("host", {}),
+    "port": ("port", {"is_int": True}),
+    "output_dir": ("output_dir", {"is_path": True}),
+    "models_dir": ("models_dir", {"is_list": True, "is_path": True}),
+    "lora_dir": ("lora_dir", {"is_list": True, "is_path": True}),
+    "cache_size": ("cache_size", {"is_int": True}),
+    "idle_unload": ("idle_unload", {"is_float": True}),
+    "api_key": ("api_key", {}),
+    "api_key_file": ("api_key_file", {"is_path": True}),
+    "require_auth": ("require_auth", {"is_bool": True}),
+    "allowed_host": ("allowed_host", {"is_list": True}),
+    "tls_cert": ("tls_cert", {"is_path": True}),
+    "tls_key": ("tls_key", {"is_path": True}),
+    "behind_https": ("behind_https", {"is_bool": True}),
+    "max_upload_mb": ("max_upload_mb", {"is_int": True}),
+    "log_level": ("log_level", {}),
+}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -55,7 +74,7 @@ def load_yaml(yaml_path: Path | None) -> dict:
     values: dict = {}
     current_list_key: str | None = None
     for raw_line in yaml_path.read_text().splitlines():
-        line = raw_line.split("#", 1)[0].rstrip()
+        line = strip_comment(raw_line).rstrip()
         if not line.strip():
             continue
         if line.lstrip().startswith("- "):
@@ -75,6 +94,21 @@ def load_yaml(yaml_path: Path | None) -> dict:
             current_list_key = None
             values[key] = value
     return values
+
+
+def strip_comment(line: str) -> str:
+    # Like YAML, "#" starts a comment only at the start of the line or after whitespace,
+    # and never inside quotes: API keys and paths may contain "#".
+    quote = None
+    for index, char in enumerate(line):
+        if quote:
+            if char == quote:
+                quote = None
+        elif char in "'\"":
+            quote = char
+        elif char == "#" and (index == 0 or line[index - 1].isspace()):
+            return line[:index]
+    return line
 
 
 def coerce_value(
@@ -105,25 +139,10 @@ def coerce_value(
 
 def merge_settings(args: argparse.Namespace, yaml_values: dict) -> argparse.Namespace:
     """CLI wins over YAML; YAML wins over built-in defaults."""
-    option = {  # dest -> (yaml key, type flags)
-        "host": ("host", {}),
-        "port": ("port", {"is_int": True}),
-        "output_dir": ("output_dir", {"is_path": True}),
-        "models_dir": ("models_dir", {"is_list": True, "is_path": True}),
-        "lora_dir": ("lora_dir", {"is_list": True, "is_path": True}),
-        "cache_size": ("cache_size", {"is_int": True}),
-        "idle_unload": ("idle_unload", {"is_float": True}),
-        "api_key": ("api_key", {}),
-        "api_key_file": ("api_key_file", {"is_path": True}),
-        "require_auth": ("require_auth", {"is_bool": True}),
-        "allowed_host": ("allowed_host", {"is_list": True}),
-        "tls_cert": ("tls_cert", {"is_path": True}),
-        "tls_key": ("tls_key", {"is_path": True}),
-        "behind_https": ("behind_https", {"is_bool": True}),
-        "max_upload_mb": ("max_upload_mb", {"is_int": True}),
-        "log_level": ("log_level", {}),
-    }
-    for dest, (yaml_key, flags) in option.items():
+    known = {yaml_key for yaml_key, _ in YAML_OPTIONS.values()}
+    if unknown := sorted(set(yaml_values) - known):
+        raise SystemExit(f"mflux-web: unknown YAML setting(s): {', '.join(unknown)}. Known: {', '.join(sorted(known))}")
+    for dest, (yaml_key, flags) in YAML_OPTIONS.items():
         cli_value = getattr(args, dest)
         if cli_value is not None:
             continue
@@ -156,7 +175,32 @@ def merge_settings(args: argparse.Namespace, yaml_values: dict) -> argparse.Name
         args.max_upload_mb = 50
     if args.log_level is None:
         args.log_level = "info"
+    args.log_level = str(args.log_level).lower()
+    if args.log_level not in LOG_LEVELS:
+        raise SystemExit(f"mflux-web: log_level must be one of {', '.join(LOG_LEVELS)}, got {args.log_level!r}")
     return args
+
+
+def resolve_api_key(cli: argparse.Namespace, merged: argparse.Namespace, environ) -> str | None:
+    """Pick the API key: command line > MFLUX_WEB_API_KEY > YAML. A key file counts at its own level.
+
+    `cli` is the namespace before merge_settings, so the YAML values are still None in it.
+    """
+    for key, key_file in (
+        (cli.api_key, cli.api_key_file),
+        (environ.get("MFLUX_WEB_API_KEY"), None),
+        (merged.api_key, merged.api_key_file),
+    ):
+        if key and key_file:
+            raise SystemExit("mflux-web: give an API key or an API key file, not both")
+        if key_file:
+            try:
+                return key_file.expanduser().read_text().strip()
+            except OSError as exc:
+                raise SystemExit(f"mflux-web: cannot read the API key file {key_file}: {exc.strerror}") from None
+        if key:
+            return key
+    return None
 
 
 def main() -> None:
@@ -171,15 +215,14 @@ def main() -> None:
     except ImportError as exc:
         parser.exit(1, f"{INSTALL_HINT}\n({exc})\n")
 
+    cli_args = argparse.Namespace(**vars(args))
     yaml_values = load_yaml(args.yaml if args.yaml is not None else DEFAULT_YAML_PATH)
     args = merge_settings(args, yaml_values)
 
     if (args.tls_cert is None) != (args.tls_key is None):
         parser.error("--tls-cert and --tls-key must be given together")
 
-    api_key = args.api_key or os.environ.get("MFLUX_WEB_API_KEY")
-    if args.api_key_file is not None:
-        api_key = args.api_key_file.read_text().strip()
+    api_key = resolve_api_key(cli_args, args, os.environ)
     if api_key and (problem := WebAuth.validate_new_key(api_key)):
         parser.error(problem)
 

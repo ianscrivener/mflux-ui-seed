@@ -20,7 +20,7 @@ plumbing.
 ## Overview
 
 - **What this is:** the full fork web UI (FastAPI app, job runner, adapters,
-  auth, static/templates assets, ~2.2k lines + 185 tests) as an independently
+  auth, static/templates assets and tests) as an independently
   releasable package.
 - **The contract (PR #776):** this distribution ships ONLY
   `src/mflux/web/seed/`. It never ships `src/mflux/__init__.py` (core owns
@@ -32,7 +32,7 @@ plumbing.
 
 ```bash
 just venv-install   # venv (Python 3.13) + deps + pre-commit hooks
-just test           # 202 web UI tests + namespace contract tests
+just test           # web UI tests + namespace contract tests
 just dev-lint       # ruff (read-only)
 just dev-format     # ruff format (mutates files)
 just dev-typecheck  # ty
@@ -97,9 +97,6 @@ release. Once core ships a release containing #776, swap to
   (`unresolved-attribute`, `invalid-assignment`, `invalid-argument-type`,
   `not-subscriptable` — 26 pre-existing diagnostics in `runner.py`'s
   `Job | str` sentinel pattern). Fix piecemeal, not during extraction.
-- The `INSTALL_HINT` message inside `cli.py` still says `mflux[web]` — it
-  only fires when UI deps are missing from a core-only install; update if
-  this package installs its own deps (it does).
 
 ## Layout
 
@@ -107,7 +104,7 @@ release. Once core ships a release containing #776, swap to
 src/mflux/web/seed/    # the child: app.py adapters.py runner.py auth.py cli.py
                        #            invocation.py network.py paths.py schema.py
                        #            settings.py static/ templates/
-tests/web/             # 185 UI tests from the fork (imports rewritten)
+tests/web/             # UI tests from the fork (imports rewritten)
 tests/test_namespace_extensions.py  # PR #776 contract regression tests
 justfile               # adapted from mflux core (clean → uninstall)
 .pre-commit-config.yaml # ruff + typos + ty + uv-sync-locked

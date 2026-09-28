@@ -41,7 +41,7 @@ dev-lint:
     uvx ruff@{{ ruff_version }} check
     @echo "✅ Linting complete."
 
-# Lint the justfile itself (fails if 'just --fmt' would reformat it; run 'just fmt-justfile' to fix)
+# Lint the justfile itself (fails if 'just --fmt' would reformat it; run 'just --fmt' to fix)
 dev-lint-justfile:
     {{ just_executable() }} --fmt --check
 

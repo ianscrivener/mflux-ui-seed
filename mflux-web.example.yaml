@@ -5,34 +5,30 @@
 
 # --- server -------------------------------------------------------------------
 
-# host: 127.0.0.1          # bind address; anything but loopback requires an API key
-# port: 8001               # port to listen on
-# log_level: info          # debug | info | warning | error
+# host: 127.0.0.1               # bind address; anything but loopback requires an API key
+# port: 8001                    # port to listen on
+# log_level: info               # debug | info | warning | error
 
 # --- images & models ----------------------------------------------------------
 
-# output_dir: ~/AI/mflux-web/outputs   # where generated images are written; the UI cannot write anywhere else
-# models_dir:                           # repeatable: directory whose subdirectories are local model checkpoints
-#   - ~/AI/models
-# lora_dir:                             # repeatable: directory searched for local .safetensors LoRAs
-#   - ~/AI/loras
-
-# cache_size: 1            # how many loaded models to keep in memory between runs (0 reloads every run)
-# idle_unload: 10          # free the loaded model after this many idle minutes (0 keeps it loaded until another model is needed)
-# max_upload_mb: 50        # largest init image accepted
+# output_dir: ~/AI/mflux-web/outputs    # where generated images are written; the UI cannot write anywhere else
+# models_dir:                   # repeatable: directory whose subdirectories are local model checkpoints - ~/AI/models
+# lora_dir:                     # repeatable: directory searched for local .safetensors LoRAs - ~/AI/loras  
+# cache_size: 1                 # how many loaded models to keep in memory between runs (0 reloads every run)
+# idle_unload: 10               # free the loaded model after this many idle minutes (0 keeps it loaded until another model is needed)
+# max_upload_mb: 50             # largest init image accepted
 
 # --- auth ---------------------------------------------------------------------
 
-# api_key: changeme        # API key for login. Prefer MFLUX_WEB_API_KEY, api_key_file, or
-#                          # leaving this unset so the first visit offers to create a key:
-#                          # values in this file are plaintext, just like --api-key on a command line.
+# api_key: changeme             # API key for login. Prefer MFLUX_WEB_API_KEY, api_key_file, or
+#                               # leaving this unset so the first visit offers to create a key:
+#                               # values in this file are plaintext, just like --api-key on a command line.
 # api_key_file: ~/.config/mflux/api-key.txt  # read the API key from this file (do not also set api_key)
-# require_auth: false      # require login on loopback too
+# require_auth: false           # require login on loopback too
 
 # --- network / TLS ------------------------------------------------------------
 
-# allowed_host:            # repeatable: extra Host header names to accept (e.g. a Tailscale or reverse-proxy name)
-#   - mflux.tail1234.ts.net
+# allowed_host:                 # repeatable: extra Host header names to accept (e.g. a Tailscale or reverse-proxy name) - mflux.tail1234.ts.net
 # tls_cert: ~/certs/mflux.pem   # serve HTTPS with this certificate (PEM)
 # tls_key: ~/certs/mflux.key    # private key for tls_cert
-# behind_https: false      # a TLS-terminating proxy sits in front: mark session cookies Secure
+# behind_https: false           # a TLS-terminating proxy sits in front: mark session cookies Secure

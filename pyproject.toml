@@ -44,7 +44,7 @@ mflux-web = "mflux.web.seed.cli:main"
 [dependency-groups]
 dev = [
     "pytest>=9.1,<10.0",
-    # Pinned exactly; keep in sync with .pre-commit-config.yaml and the CI lint job.
+    # Pinned exactly; keep in sync with .pre-commit-config.yaml.
     "ruff==0.16.3",
     # Pinned exactly; keep in sync with .pre-commit-config.yaml (astral-sh/ty-pre-commit rev).
     "ty==0.0.72",

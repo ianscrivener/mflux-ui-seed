@@ -72,6 +72,8 @@ mflux-web.example.yaml  # example settings file (all keys commented out)
 - To add a model, subclass `CommandAdapter` and add the instance to `ADAPTERS`. Add tests in `tests/web/`.
 - `JobRunner` touches model memory only on its worker thread. Do not load, use or free models from request handlers.
 - Settings precedence: command-line flags, then the YAML file, then built-in defaults. The YAML file is at `~/.config/mflux/mflux-web.yaml`, or at `MFLUX_WEB_YAML`, or at the `--yaml` path.
+- The server rejects unknown YAML keys. When you add a setting, add it to `YAML_OPTIONS` in `cli.py` and to `mflux-web.example.yaml`.
+- API key precedence: command line, then `MFLUX_WEB_API_KEY`, then YAML. At each level, a key and a key file together are an error.
 
 ## Security rules
 

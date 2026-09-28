@@ -47,7 +47,7 @@ class Invocation:
     @staticmethod
     def from_payload(payload: dict, guard: PathGuard, schema: FormSchema, output_stem: Path) -> "Invocation":
         command = payload.get("command")
-        adapter = ADAPTERS.get(command)
+        adapter = ADAPTERS.get(command) if isinstance(command, str) else None
         if adapter is None:
             raise InvocationError(f"Command not available in the web UI: {command!r}")
         fields = schema.fields_by_flag(command)
@@ -206,7 +206,11 @@ class Invocation:
 
     @staticmethod
     def _model_tokens(model: dict | None, adapter: CommandAdapter, guard: PathGuard, provided: set[str]) -> list[str]:
-        if not model or not model.get("value"):
+        if not model:
+            return []
+        if not isinstance(model, dict):
+            raise InvocationError("model must be an object")
+        if not model.get("value"):
             return []
         source, value = model.get("source"), str(model["value"])
         try:
@@ -244,7 +248,11 @@ class Invocation:
 
     @staticmethod
     def _image_tokens(image: dict | None, guard: PathGuard, fields: dict, provided: set[str]) -> list[str]:
-        if not image or not image.get("upload"):
+        if not image:
+            return []
+        if not isinstance(image, dict):
+            raise InvocationError("image must be an object")
+        if not image.get("upload"):
             return []
         if "--image" not in fields:
             raise InvocationError("This command does not take an init image")

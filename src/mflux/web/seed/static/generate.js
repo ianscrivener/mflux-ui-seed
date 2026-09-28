@@ -496,6 +496,9 @@
     try {
       const result = await MF.api("/api/jobs", { method: "DELETE" });
       clearStoredDrafts();
+      // The server deleted every upload not used by a queued or running job, which
+      // includes the init image still set in this form.
+      if (result.removed_uploads) setUpload(null);
       if (state.activeJob && ["done", "error", "cancelled"].includes(state.activeJob.status)) resetStage();
       refreshJobs();
       MF.toast(`Cleared ${result.cleared_jobs} job${result.cleared_jobs === 1 ? "" : "s"}`);

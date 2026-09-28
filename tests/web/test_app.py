@@ -256,3 +256,67 @@ def test_quiet_access_log_hides_polling_but_keeps_actions():
         assert not quiet.filter(record("GET", path)), path
     for method, path in (("POST", "/api/generate"), ("DELETE", "/api/jobs"), ("GET", "/"), ("GET", "/gallery")):
         assert quiet.filter(record(method, path)), path
+
+
+def test_bearer_guesses_are_throttled(tmp_path):
+    client = client_for(make_app(tmp_path, api_key_hash=WebAuth.hash_key(KEY)))
+    for _ in range(6):
+        client.get("/api/status", headers={"Authorization": "Bearer wrong-key-value"})
+    # The public session endpoint must not become an unthrottled way to test keys.
+    response = client.get("/api/session", headers={"Authorization": f"Bearer {KEY}"})
+    assert response.status_code == 429
+    assert "Retry-After" in response.headers
+
+
+def test_session_reports_bearer_authentication(tmp_path):
+    client = client_for(make_app(tmp_path, api_key_hash=WebAuth.hash_key(KEY)))
+    assert client.get("/api/session", headers={"Authorization": f"Bearer {KEY}"}).json()["authenticated"] is True
+    assert client.get("/api/session").json()["authenticated"] is False
+
+
+def test_throttle_is_per_client_behind_a_proxy(tmp_path):
+    web = make_app(tmp_path, api_key_hash=WebAuth.hash_key(KEY), allowed_hosts=["mflux.example.ts.net"])
+    client = client_for(web)
+    attacker = {"X-Forwarded-For": "spoofed, 203.0.113.9"}
+    for _ in range(6):
+        client.post("/api/login", json={"api_key": "wrong-key-value"}, headers={**attacker, **csrf(client)})
+    assert client.post("/api/login", json={"api_key": KEY}, headers={**attacker, **csrf(client)}).status_code == 429
+    victim = {"X-Forwarded-For": "198.51.100.7"}
+    assert client.post("/api/login", json={"api_key": KEY}, headers={**victim, **csrf(client)}).status_code == 200
+
+
+def test_forwarded_for_is_ignored_without_a_proxy(tmp_path):
+    client = client_for(make_app(tmp_path, api_key_hash=WebAuth.hash_key(KEY)))
+    for index in range(6):
+        headers = {"X-Forwarded-For": f"203.0.113.{index}", **csrf(client)}
+        client.post("/api/login", json={"api_key": "wrong-key-value"}, headers=headers)
+    assert client.post("/api/login", json={"api_key": KEY}, headers=csrf(client)).status_code == 429
+
+
+def test_chunked_body_is_refused(tmp_path):
+    client = client_for(make_app(tmp_path))
+
+    def body():
+        yield b'{"command": "mflux-generate", "options": {"--prompt": "x"}}'
+
+    response = client.post("/api/validate", content=body(), headers=csrf(client))
+    assert response.status_code == 411
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"preview_every": "abc"},
+        {"preview_every": 2.5},
+        {"preview_every": True},
+        {"preview_every": 10_000},
+        {"model": "dev"},
+        {"image": "upload.png"},
+        {"command": ["mflux-generate"]},
+    ],
+)
+def test_malformed_generate_payload_is_a_client_error(tmp_path, extra):
+    web = make_app(tmp_path)
+    client = TestClient(web.app, base_url=BASE, client=("127.0.0.1", 50000), raise_server_exceptions=False)
+    body = {"command": "mflux-generate-z-image-turbo", "options": {"--prompt": "x"}, **extra}
+    assert client.post("/api/generate", json=body, headers=csrf(client)).status_code == 400

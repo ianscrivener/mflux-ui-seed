@@ -26,7 +26,7 @@
 # api_key: changeme        # API key for login. Prefer MFLUX_WEB_API_KEY, api_key_file, or
 #                          # leaving this unset so the first visit offers to create a key:
 #                          # values in this file are plaintext, just like --api-key on a command line.
-# api_key_file: ~/.config/mflux/api-key.txt  # read the API key from this file instead
+# api_key_file: ~/.config/mflux/api-key.txt  # read the API key from this file (do not also set api_key)
 # require_auth: false      # require login on loopback too
 
 # --- network / TLS ------------------------------------------------------------

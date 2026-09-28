@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from mflux.web.seed.cli import build_parser, coerce_value, load_yaml, merge_settings
+from mflux.web.seed.cli import build_parser, coerce_value, load_yaml, merge_settings, resolve_api_key, strip_comment
 
 YAML_FULL = """\
 host: 192.168.1.50
@@ -134,3 +134,74 @@ class TestCliFlags:
         assert parse(["--require-auth"]).require_auth is True
         assert parse(["--behind-https"]).behind_https is True
         assert parse(["--no-behind-https"]).behind_https is False
+
+
+class TestComments:
+    @pytest.mark.parametrize(
+        ("line", "expected"),
+        [
+            ("# whole line", ""),
+            ("host: 0.0.0.0  # trailing", "host: 0.0.0.0  "),
+            ("api_key: abcdefghijkl#mnop", "api_key: abcdefghijkl#mnop"),
+            ("api_key: 'abc #def'", "api_key: 'abc #def'"),
+            ("output_dir: ~/AI/#inbox", "output_dir: ~/AI/#inbox"),
+        ],
+    )
+    def test_hash_starts_a_comment_only_after_whitespace(self, line: str, expected: str) -> None:
+        assert strip_comment(line) == expected
+
+    def test_key_with_hash_survives_loading(self, tmp_path: Path) -> None:
+        path = tmp_path / "m.yaml"
+        path.write_text("api_key: abcdefghijkl#mnop  # the key\n")
+        assert load_yaml(path)["api_key"] == "abcdefghijkl#mnop"
+
+
+class TestValidation:
+    def test_unknown_key_is_rejected(self) -> None:
+        with pytest.raises(SystemExit, match="require_auht"):
+            merge_settings(parse([]), {"require_auht": "true"})
+
+    def test_bad_log_level_is_rejected(self) -> None:
+        with pytest.raises(SystemExit, match="log_level"):
+            merge_settings(parse([]), {"log_level": "verbose"})
+
+    def test_log_level_is_case_insensitive(self) -> None:
+        assert merge_settings(parse([]), {"log_level": "DEBUG"}).log_level == "debug"
+
+
+class TestApiKeyPrecedence:
+    def resolve(self, argv: list[str], yaml_values: dict, environ: dict) -> str | None:
+        cli = parse(argv)
+        merged = merge_settings(argparse.Namespace(**vars(cli)), yaml_values)
+        return resolve_api_key(cli, merged, environ)
+
+    def test_cli_key_beats_yaml_key_file(self, tmp_path: Path) -> None:
+        key_file = tmp_path / "key.txt"
+        key_file.write_text("file-key-123456\n")
+        assert self.resolve(["--api-key", "cli-key-123456"], {"api_key_file": str(key_file)}, {}) == "cli-key-123456"
+
+    def test_cli_key_file_beats_environment(self, tmp_path: Path) -> None:
+        key_file = tmp_path / "key.txt"
+        key_file.write_text("file-key-123456\n")
+        environ = {"MFLUX_WEB_API_KEY": "env-key-123456"}
+        assert self.resolve(["--api-key-file", str(key_file)], {}, environ) == "file-key-123456"
+
+    def test_environment_beats_yaml(self) -> None:
+        environ = {"MFLUX_WEB_API_KEY": "env-key-123456"}
+        assert self.resolve([], {"api_key": "yaml-key-123456"}, environ) == "env-key-123456"
+
+    def test_yaml_key_file_is_used_last(self, tmp_path: Path) -> None:
+        key_file = tmp_path / "key.txt"
+        key_file.write_text("file-key-123456\n")
+        assert self.resolve([], {"api_key_file": str(key_file)}, {}) == "file-key-123456"
+
+    def test_key_and_key_file_at_one_level_is_an_error(self, tmp_path: Path) -> None:
+        with pytest.raises(SystemExit, match="not both"):
+            self.resolve([], {"api_key": "yaml-key-123456", "api_key_file": str(tmp_path / "k")}, {})
+
+    def test_unreadable_key_file_is_a_clean_error(self, tmp_path: Path) -> None:
+        with pytest.raises(SystemExit, match="cannot read"):
+            self.resolve(["--api-key-file", str(tmp_path / "missing.txt")], {}, {})
+
+    def test_no_key(self) -> None:
+        assert self.resolve([], {}, {}) is None

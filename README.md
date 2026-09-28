@@ -43,14 +43,23 @@ just venv-uninstall # remove .venv
 Run the UI:
 
 ```bash
-uv run mflux-web              # serves the web UI (see --help for host/port/auth/TLS)
-uv run mflux-web --help       # full option list
+just run                      # serves the web UI (see --help for host/port/auth/TLS)
+just run --help               # full option list
 ```
+
+To keep your settings in a file, copy the example settings file. Then remove the `#` from the settings that you want to change:
+
+```bash
+mkdir -p ~/.config/mflux
+cp mflux-web.example.yaml ~/.config/mflux/mflux-web.yaml
+```
+
+Command-line options override the values in this file.
 
 Build a publishable wheel/sdist:
 
 ```bash
-uv build                       # dist/mflux_web_seed-0.1.0*.whl|.tar.gz
+just build                     # dist/mflux_web_seed-0.1.0*.whl|.tar.gz
 ```
 
 ## How the namespace works

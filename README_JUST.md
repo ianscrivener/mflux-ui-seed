@@ -4,6 +4,8 @@
 
 `just` (no arguments) lists all recipes.
 
+`just build` build the wheel and sdist into `dist/`. It deletes old files in `dist/` first.
+
 `just dev-check` run pre-commit auto-fixes and formatters on all files.
 
 `just dev-format` run the ruff formatter (mutates files; review your git diffs after).
@@ -11,6 +13,8 @@
 `just dev-lint` run the ruff linter (read-only; files are not mutated).
 
 `just dev-typecheck` run the ty type checker.
+
+`just run` start the web server. Add mflux-web options after the recipe name, for example `just run --port 8002`.
 
 `just test` run the test suite.
 

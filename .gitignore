@@ -220,3 +220,6 @@ __marimo__/
 # Claude Code personal files (shared .claude/ files are committed)
 .claude/settings.local.json
 CLAUDE.local.md
+
+# mflux-web settings file (can hold a plain-text API key)
+mflux-web.yaml

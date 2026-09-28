@@ -39,9 +39,9 @@ Use `uv run` for all Python commands. Do not use `pip install`.
 | Type check (ty) | `just dev-typecheck` | No |
 | All pre-commit hooks | `just dev-check` | Yes (auto-fix) |
 | Tests | `just test` | No |
-| Run the UI | `uv run mflux-web` | No |
-| Show UI options | `uv run mflux-web --help` | No |
-| Build wheel and sdist | `uv build` | Yes (`dist/`) |
+| Start the web server | `just run` | No |
+| Show server options | `just run --help` | No |
+| Build wheel and sdist | `just build` | Yes (`dist/`) |
 
 Before you say that a change is complete, run `just dev-lint`, `just dev-typecheck` and `just test`.
 
@@ -63,7 +63,7 @@ src/mflux/web/seed/
   templates/      # Jinja2 HTML templates
 tests/web/        # UI tests
 tests/test_namespace_extensions.py  # namespace contract tests
-config.yaml       # example settings file (all keys commented out)
+mflux-web.example.yaml  # example settings file (all keys commented out)
 ```
 
 ## Architecture notes
@@ -101,7 +101,7 @@ The UI can listen on a network, so these rules are strict.
 
 - Keep each PR on one topic.
 - `just dev-check` and `just test` must pass before you open a PR.
-- Update `README.md` when a command, option or setting changes. Update `config.yaml` when a setting changes.
+- Update `README.md` when a command, option or setting changes. Update `mflux-web.example.yaml` when a setting changes.
 - Do not commit personal paths, API keys, models, generated images, `.venv/` or `dist/`.
 
 ## Agent-specific files

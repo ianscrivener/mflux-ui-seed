@@ -71,6 +71,14 @@ dev-check:
 # Run the test suite
 test: _test-run
 
+# Start the web server (pass mflux-web options, e.g. 'just run --port 8002')
+run *args:
+    uv run mflux-web {{ args }}
+
+# Build the wheel and sdist into dist/ (deletes old files in dist/ first)
+build:
+    uv build --clear
+
 # Remove the virtual environment
 venv-uninstall:
     @echo "🧼 Cleaning up venv."

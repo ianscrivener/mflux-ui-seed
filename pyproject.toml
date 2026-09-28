@@ -1,0 +1,112 @@
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+default-excludes = true
+# mflux PR #776 namespace contract: this distribution ships ONLY the
+# mflux/web/seed/ subtree. Never ship src/mflux/__init__.py (core owns it)
+# or src/mflux/web/__init__.py (mflux.web must stay an implicit namespace
+# package).
+module-name = "mflux.web.seed"
+namespace = true
+
+[project]
+name = "mflux-web-seed"
+version = "0.1.0"
+description = "The mflux web UI seed/starter, distributed as an independent mflux.web.seed child package (mflux PR #776 namespace model)."
+readme = "README.md"
+keywords = ["mflux", "mlx", "web", "ui", "fastapi", "apple-silicon"]
+authors = [{ name = "Ian Scrivener" }]
+license = { file = "LICENSE" }
+requires-python = ">=3.12"
+dependencies = [
+    # Core mflux plumbing (inference). Split-directory and editable installs
+    # require the parent path extension from mflux PR #776; until the first
+    # release containing it ships, the [tool.uv.sources] override below pins
+    # core to main. Swap to "mflux>=0.21.0" (or later) and drop the override
+    # once that release is out.
+    "mflux>=0.20.0",
+    # UI stack (from the fork's [project.optional-dependencies] web extra)
+    "fastapi>=0.115,<1.0",
+    "itsdangerous>=2.2,<3.0",
+    "jinja2>=3.1,<4.0",
+    "python-multipart>=0.0.18",
+    "uvicorn>=0.30,<1.0",
+]
+
+[tool.uv.sources]
+mflux = { git = "https://github.com/mflux-community/mflux.git" }
+
+[project.scripts]
+mflux-web = "mflux.web.seed.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1,<10.0",
+    # Pinned exactly; keep in sync with .pre-commit-config.yaml and the CI lint job.
+    "ruff==0.16.3",
+    # Pinned exactly; keep in sync with .pre-commit-config.yaml (astral-sh/ty-pre-commit rev).
+    "ty==0.0.72",
+]
+
+[tool.ruff]
+line-length = 120
+indent-width = 4
+target-version = "py312"
+respect-gitignore = true
+
+[tool.ruff.lint]
+select = ["BLE", "E4", "E7", "E9", "F", "I", "ICN", "LOG", "PERF", "W"]
+ignore = []
+fixable = ["ALL"]
+unfixable = []
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.isort]
+case-sensitive = false
+combine-as-imports = true
+force-wrap-aliases = true
+from-first = false
+known-first-party = ["mflux.web.seed"]
+relative-imports-order = "furthest-to-closest"
+section-order = [
+    "future",
+    "standard-library",
+    "third-party",
+    "first-party",
+    "local-folder",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+docstring-code-format = false
+docstring-code-line-length = "dynamic"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+addopts = '-v --failed-first --showlocals --tb=long --full-trace'
+
+[tool.ty.analysis]
+# ty cannot model the pkgutil.extend_path merge (mflux PR #776): when core is
+# installed as a regular package in site-packages and this distribution
+# contributes the child as a namespace portion under src/, a static resolver
+# picks the regular parent and mflux.web.* looks unresolvable. The imports
+# are verified at runtime by the tests themselves (including -I -S subprocesses).
+allowed-unresolved-imports = ["mflux.web.**"]
+
+[tool.ty.rules]
+# One-time extraction baseline (2026-09-28): every rule below had pre-existing
+# violations in the web code carried over from the x746b/mflux fork
+# (counts: unresolved-attribute 11, invalid-assignment 8,
+# invalid-argument-type 4, not-subscriptable 3 — runner.py's `Job | str`
+# sentinel pattern and object-typed subprocess results).
+# Plan: re-enable (delete the ignore line) and fix piecemeal, one rule at a time.
+unresolved-attribute = "ignore"
+invalid-assignment = "ignore"
+invalid-argument-type = "ignore"
+not-subscriptable = "ignore"
